@@ -60,7 +60,6 @@ services:
       - ./scripts:/app/scripts
       - ./config:/app/config
       - ./data:/app/data
-      - ./tests:/app/tests
     command: python orchestration/medallion_pipeline.py
 
   airflow:

@@ -1,0 +1,15 @@
+{
+  "pipeline_start": "2026-02-07 17:19:19.134212",
+  "pipeline_end": "2026-02-07 17:21:58.636396",
+  "layer_results": {
+    "bronze": {
+      "status": "SUCCESS",
+      "duration_seconds": 159.501146,
+      "files_ingested": 67,
+      "records_loaded": 2782578,
+      "start_time": "2026-02-07 17:19:19.134919",
+      "end_time": "2026-02-07 17:21:58.636065"
+    }
+  },
+  "overall_status": "SUCCESS"
+}

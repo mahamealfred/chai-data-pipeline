@@ -1,0 +1,79 @@
+[
+  {
+    "source": "api",
+    "endpoint": "users",
+    "local_filename": "users_20260207171920.json",
+    "records": 10,
+    "data_hash": "c1190c4cedfee426",
+    "ingestion_timestamp": "2026-02-07 17:19:20.473981",
+    "local_path": "data/bronze/users_20260207171920.json",
+    "minio_path": "api/users/users_20260207171920.json",
+    "status": "success"
+  },
+  {
+    "source": "api",
+    "endpoint": "posts",
+    "local_filename": "posts_20260207171920.json",
+    "records": 100,
+    "data_hash": "63e393371dfe8c83",
+    "ingestion_timestamp": "2026-02-07 17:19:20.849491",
+    "local_path": "data/bronze/posts_20260207171920.json",
+    "minio_path": "api/posts/posts_20260207171920.json",
+    "status": "success"
+  },
+  {
+    "source": "csv",
+    "dataset": "covid",
+    "file_name": "time-series-19-covid-combined.csv",
+    "local_filename": "time-series-19-covid-combined_20260207171924.csv",
+    "records": 231744,
+    "columns": [
+      "Date",
+      "Country/Region",
+      "Province/State",
+      "Confirmed",
+      "Recovered",
+      "Deaths"
+    ],
+    "data_hash": "0cc3e084410175c9",
+    "ingestion_timestamp": "2026-02-07 17:19:24.051206",
+    "local_path": "data/bronze/time-series-19-covid-combined_20260207171924.csv",
+    "minio_path": "csv/covid/time-series-19-covid-combined_20260207171924.csv",
+    "status": "success"
+  },
+  {
+    "source": "csv",
+    "dataset": "ecommerce",
+    "file_name": "Telco-Customer-Churn.csv",
+    "local_filename": "Telco-Customer-Churn_20260207171928.csv",
+    "records": 7043,
+    "columns": [
+      "customerID",
+      "gender",
+      "SeniorCitizen",
+      "Partner",
+      "Dependents",
+      "tenure",
+      "PhoneService",
+      "MultipleLines",
+      "InternetService",
+      "OnlineSecurity",
+      "OnlineBackup",
+      "DeviceProtection",
+      "TechSupport",
+      "StreamingTV",
+      "StreamingMovies",
+      "Contract",
+      "PaperlessBilling",
+      "PaymentMethod",
+      "MonthlyCharges",
+      "TotalCharges",
+      "Churn"
+    ],
+    "data_hash": "a0ea74c48c1063be",
+    "ingestion_timestamp": "2026-02-07 17:19:28.471013",
+    "local_path": "data/bronze/Telco-Customer-Churn_20260207171928.csv",
+    "minio_path": "csv/ecommerce/Telco-Customer-Churn_20260207171928.csv",
+    "status": "success"
+  }
+]
