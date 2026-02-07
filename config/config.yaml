@@ -1,0 +1,53 @@
+
+data_sources:
+  api:
+    users: "https://jsonplaceholder.typicode.com/users"
+    posts: "https://jsonplaceholder.typicode.com/posts"
+  csv:
+    covid: "https://raw.githubusercontent.com/datasets/covid-19/main/data/time-series-19-covid-combined.csv"
+    ecommerce: "https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv"
+
+storage:
+
+  bronze_path: "data/bronze"
+  silver_path: "data/silver"
+  gold_path: "data/gold"
+  
+  minio:
+    endpoint: "minio:9000"
+    access_key: "admin"
+    secret_key: "password123"
+    bronze_bucket: "bronze-layer"
+    silver_bucket: "silver-layer"
+    gold_bucket: "gold-layer"
+
+database:
+  host: "postgres"
+  port: 5432
+  database: "medallion_dw"
+  user: "admin"
+  password: "admin123"
+  
+  schemas:
+    bronze: "bronze"
+    silver: "silver"
+    gold: "gold"
+
+
+pipeline:
+  batch_size: 10000
+  enable_data_quality: true
+  enable_lineage_tracking: true
+  retention_days:
+    bronze: 30
+    silver: 90
+    gold: 365
+
+data_quality:
+  users:
+    required_fields: ["id", "name", "email"]
+    email_format: "regex"
+    phone_format: "optional"
+  covid:
+    required_fields: ["Date", "Country/Region", "Confirmed"]
+    positive_values: ["Confirmed", "Deaths", "Recovered"]
