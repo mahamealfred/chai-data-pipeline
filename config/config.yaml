@@ -1,3 +1,12 @@
+data_quality:
+  rules:
+    - name: "No Nulls"
+      columns: ["customer_id", "gender"]
+      rule: "not_null"
+    - name: "Valid Gender"
+      columns: ["gender"]
+      rule: "in"
+      values: ["Male", "Female"]
 
 data_sources:
   api:
@@ -5,7 +14,6 @@ data_sources:
     posts: "https://jsonplaceholder.typicode.com/posts"
   csv:
     covid: "https://raw.githubusercontent.com/datasets/covid-19/main/data/time-series-19-covid-combined.csv"
-    ecommerce: "https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv"
 
 storage:
 

@@ -15,8 +15,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 # Import medallion layer modules
 from scripts.bronze.ingest_bronze import BronzeIngestor
 from scripts.bronze.load_bronze import BronzeLoader
-# from scripts.silver.transform_silver import SilverTransformer
-# from scripts.silver.validate_silver import SilverValidator
+from scripts.silver.transform_silver import SilverTransformer
+from scripts.silver.validate_silver import SilverValidator
 # from scripts.gold.model_gold import GoldModeler
 # from scripts.gold.aggregate_gold import GoldAggregator
 
@@ -38,8 +38,8 @@ class MedallionPipeline:
         config_path = os.path.join('config', 'config.yaml')
         self.ingestor = BronzeIngestor(config_path)
         self.bronze_loader = BronzeLoader(config_path)
-        # self.silver_transformer = SilverTransformer()
-        # self.silver_validator = SilverValidator()
+        self.silver_transformer = SilverTransformer()
+        self.silver_validator = SilverValidator()
         # self.gold_modeler = GoldModeler()
         # self.gold_aggregator = GoldAggregator()
         
@@ -110,44 +110,44 @@ class MedallionPipeline:
                 'end_time': datetime.now()
             }
     
-    # def execute_silver_layer(self) -> Dict[str, Any]:
-    #     """Execute Silver Layer: Data transformation and validation"""
-    #     logger.info("Starting SILVER Layer Execution")
-    #     start_time = datetime.now()
+    def execute_silver_layer(self) -> Dict[str, Any]:
+        """Execute Silver Layer: Data transformation and validation"""
+        logger.info("Starting SILVER Layer Execution")
+        start_time = datetime.now()
         
-    #     try:
-    #         # Step 1: Transform data
-    #         logger.info("Step 1: Data Transformation")
-    #         transformation_results = self.silver_transformer.run()
+        try:
+            # Step 1: Transform data
+            logger.info("Step 1: Data Transformation")
+            transformation_results = self.silver_transformer.run()
             
-    #         # Step 2: Validate data quality
-    #         logger.info("Step 2: Data Validation")
-    #         validation_results = self.silver_validator.run()
+            # Step 2: Validate data quality
+            logger.info("Step 2: Data Validation")
+            validation_results = self.silver_validator.run()
             
-    #         end_time = datetime.now()
-    #         duration = (end_time - start_time).total_seconds()
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
             
-    #         result = {
-    #             'status': 'SUCCESS',
-    #             'duration_seconds': duration,
-    #             'transformation_results': transformation_results,
-    #             'validation_results': validation_results,
-    #             'start_time': start_time,
-    #             'end_time': end_time
-    #         }
+            result = {
+                'status': 'SUCCESS',
+                'duration_seconds': duration,
+                'transformation_results': transformation_results,
+                'validation_results': validation_results,
+                'start_time': start_time,
+                'end_time': end_time
+            }
             
-    #         quality_score = validation_results.get('quality_score', 0)
-    #         logger.info(f"SILVER Layer Completed: Quality Score = {quality_score:.1f}% in {duration:.2f}s")
-    #         return result
+            quality_score = validation_results.get('quality_score', 0)
+            logger.info(f"SILVER Layer Completed: Quality Score = {quality_score:.1f}% in {duration:.2f}s")
+            return result
             
-    #     except Exception as e:
-    #         logger.error(f"SILVER Layer Failed: {e}")
-    #         return {
-    #             'status': 'FAILED',
-    #             'error': str(e),
-    #             'start_time': start_time,
-    #             'end_time': datetime.now()
-    #         }
+        except Exception as e:
+            logger.exception("SILVER Layer Failed")
+            return {
+                'status': 'FAILED',
+                'error': str(e),
+                'start_time': start_time,
+                'end_time': datetime.now()
+            }
     
     # def execute_gold_layer(self) -> Dict[str, Any]:
     #     """Execute Gold Layer: Business modeling and aggregation"""
@@ -207,16 +207,16 @@ class MedallionPipeline:
                 self.execution_metadata['overall_status'] = 'FAILED'
                 return False
             
-            # # SILVER Layer
-            # silver_result = self.execute_silver_layer()
-            # self.execution_metadata['layer_results']['silver'] = silver_result
+            # SILVER Layer
+            silver_result = self.execute_silver_layer()
+            self.execution_metadata['layer_results']['silver'] = silver_result
             
-            # if silver_result['status'] == 'FAILED':
-            #     logger.error("Pipeline stopped due to SILVER layer failure")
-            #     self.execution_metadata['overall_status'] = 'FAILED'
-            #     return False
+            if silver_result['status'] == 'FAILED':
+                logger.error("Pipeline stopped due to SILVER layer failure")
+                self.execution_metadata['overall_status'] = 'FAILED'
+                return False
             
-            # # GOLD Layer
+            # GOLD Layer
             # gold_result = self.execute_gold_layer()
             # self.execution_metadata['layer_results']['gold'] = gold_result
             

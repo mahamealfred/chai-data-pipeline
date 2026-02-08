@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from sqlalchemy import create_engine, text, inspect
 import yaml
+import io
 import logging
 from typing import Dict, List
 
@@ -21,16 +22,16 @@ class BronzeLoader:
             'bronze': [
                 'raw_users',
                 'raw_posts',
-                'raw_covid',
                 'raw_ecommerce',
+                'raw_covid',
                 'ingestion_metadata'
             ],
             'silver': [
                 # Add your silver layer table names here when you create them
-                # 'cleaned_users',
-                # 'cleaned_posts',
-                # 'cleaned_covid',
-                # 'cleaned_ecommerce'
+                'cleaned_users',
+                'cleaned_posts',
+                'cleaned_covid',
+                
             ],
             'gold': [
                 # Add your gold layer table names here when you create them
@@ -55,8 +56,8 @@ class BronzeLoader:
         tables = [
             'raw_users',
             'raw_posts',
-            'raw_covid',
             'raw_ecommerce',
+            'raw_covid',
             'ingestion_metadata'
         ]
         with self.engine.connect() as conn:
@@ -144,16 +145,16 @@ class BronzeLoader:
                     validation_status VARCHAR(20) DEFAULT 'pending'
                 );
                 
-                -- E-commerce data table (from CSV)
+                -- E-commerce / Telco churn raw table
                 CREATE TABLE IF NOT EXISTS {self.bronze_schema}.raw_ecommerce (
                     ingestion_id SERIAL PRIMARY KEY,
-                    customer_id VARCHAR(50),
-                    gender VARCHAR(10),
+                    customer_id VARCHAR(100),
+                    gender VARCHAR(20),
                     senior_citizen INTEGER,
                     partner VARCHAR(10),
                     dependents VARCHAR(10),
                     tenure INTEGER,
-                    phone_service VARCHAR(10),
+                    phone_service VARCHAR(50),
                     multiple_lines VARCHAR(50),
                     internet_service VARCHAR(50),
                     online_security VARCHAR(50),
@@ -165,15 +166,15 @@ class BronzeLoader:
                     contract VARCHAR(50),
                     paperless_billing VARCHAR(10),
                     payment_method VARCHAR(100),
-                    monthly_charges DECIMAL(10,2),
-                    total_charges DECIMAL(10,2),
+                    monthly_charges NUMERIC,
+                    total_charges NUMERIC,
                     churn VARCHAR(10),
                     source_filename VARCHAR(255),
                     ingestion_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     data_hash VARCHAR(64),
                     validation_status VARCHAR(20) DEFAULT 'pending'
                 );
-                
+
                 -- Ingestion metadata table
                 CREATE TABLE IF NOT EXISTS {self.bronze_schema}.ingestion_metadata (
                     metadata_id SERIAL PRIMARY KEY,
@@ -205,6 +206,53 @@ class BronzeLoader:
 
         logger.info(
             f"Bronze schema '{self.bronze_schema}' created successfully")
+
+    def _check_and_truncate_table(self, table_name: str):
+        """Check whether a table has rows and truncate it before bulk insert."""
+        try:
+            with self.engine.begin() as conn:
+                # Check if table contains any rows
+                res = conn.execute(text(f"SELECT EXISTS (SELECT 1 FROM {self.bronze_schema}.{table_name} LIMIT 1);"))
+                has_rows = bool(res.scalar())
+                if has_rows:
+                    conn.execute(text(f"TRUNCATE TABLE {self.bronze_schema}.{table_name} RESTART IDENTITY CASCADE;"))
+                    logger.info(f"Truncated table {self.bronze_schema}.{table_name} before bulk insert.")
+        except Exception as e:
+            logger.warning(f"Unable to check/truncate {self.bronze_schema}.{table_name}: {e}")
+
+    def _bulk_insert_df(self, df: pd.DataFrame, table_name: str) -> int:
+        """Perform a PostgreSQL COPY FROM STDIN bulk insert from a DataFrame.
+
+        Returns number of inserted rows (or 0 on failure).
+        """
+        if df is None or df.empty:
+            logger.info(f"No records to insert for {self.bronze_schema}.{table_name}")
+            return 0
+
+        # Prepare CSV in memory without header (COPY expects matching columns)
+        csv_buffer = io.StringIO()
+        # Use same defaults as pandas.to_sql: let pandas format values
+        df.to_csv(csv_buffer, index=False, header=False)
+        csv_buffer.seek(0)
+
+        raw_conn = self.engine.raw_connection()
+        try:
+            cur = raw_conn.cursor()
+            cols_sql = ','.join([f'"{c}"' for c in df.columns.tolist()])
+            copy_sql = f"COPY {self.bronze_schema}.{table_name} ({cols_sql}) FROM STDIN WITH CSV"
+            cur.copy_expert(copy_sql, csv_buffer)
+            raw_conn.commit()
+            return len(df)
+        except Exception as e:
+            raw_conn.rollback()
+            logger.error(f"Bulk insert failed for {self.bronze_schema}.{table_name}: {e}")
+            return 0
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+            raw_conn.close()
 
     def load_json_data(self, file_path: str, table_name: str) -> int:
         """Loads JSON data from the Bronze layer into the specified database table."""
@@ -251,19 +299,12 @@ class BronzeLoader:
 
                 records.append(record)
 
-            # Insert to database
+            # Insert to database using bulk COPY
             df = pd.DataFrame(records)
-            df.to_sql(
-                table_name,
-                self.engine,
-                schema=self.bronze_schema,
-                if_exists='append',
-                index=False
-            )
-
-            logger.info(
-                f"Loaded {len(df)} records to {self.bronze_schema}.{table_name}")
-            return len(df)
+            self._check_and_truncate_table(table_name)
+            inserted = self._bulk_insert_df(df, table_name)
+            logger.info(f"Loaded {inserted} records to {self.bronze_schema}.{table_name}")
+            return inserted
 
         except Exception as e:
             logger.error(f"Failed to load JSON data from {file_path}: {e}")
@@ -281,17 +322,11 @@ class BronzeLoader:
             df['data_hash'] = ''  # Add empty data_hash for schema compatibility
             df['validation_status'] = 'pending'
             
-            # Insert to database
-            df.to_sql(
-                table_name,
-                self.engine,
-                schema=self.bronze_schema,
-                if_exists='append',
-                index=False
-            )
-            
-            logger.info(f"Loaded {len(df)} records to {self.bronze_schema}.{table_name}")
-            return len(df)
+            # Insert to database using bulk COPY
+            self._check_and_truncate_table(table_name)
+            inserted = self._bulk_insert_df(df, table_name)
+            logger.info(f"Loaded {inserted} records to {self.bronze_schema}.{table_name}")
+            return inserted
             
         except Exception as e:
             logger.error(f"Failed to load Parquet data from {file_path}: {e}")
@@ -318,14 +353,10 @@ class BronzeLoader:
                 mapped_metadata.append(mapped_item)
             df = pd.DataFrame(mapped_metadata)
             df['loaded_at'] = datetime.now()
-            df.to_sql(
-                'ingestion_metadata',
-                self.engine,
-                schema=self.bronze_schema,
-                if_exists='append',
-                index=False
-            )
-            logger.info(f"Loaded {len(df)} metadata records")
+            # Bulk insert metadata (truncate if present)
+            self._check_and_truncate_table('ingestion_metadata')
+            inserted = self._bulk_insert_df(df, 'ingestion_metadata')
+            logger.info(f"Loaded {inserted} metadata records")
         except Exception as e:
             logger.error(f"Failed to load metadata: {e}")
 
@@ -333,7 +364,12 @@ class BronzeLoader:
         """Load CSV data to bronze table, with diagnostic logging and column renaming."""
         logger.info(f"Attempting to load CSV file: {file_path} into table: {self.bronze_schema}.{table_name}")
         try:
-            df = pd.read_csv(file_path)
+            try:
+                df = pd.read_csv(file_path)
+            except UnicodeDecodeError:
+                logger.warning(f"UTF-8 decode failed for {file_path}, retrying with latin-1")
+                df = pd.read_csv(file_path, encoding='latin-1')
+
             logger.info(f"CSV columns: {list(df.columns)}")
             filename = os.path.basename(file_path)
 
@@ -372,6 +408,9 @@ class BronzeLoader:
                     'Recovered': 'recovered',
                 })
 
+            # Normalize whitespace-only strings to NA
+            df = df.replace(r'^\s*$', pd.NA, regex=True)
+
             # Add metadata columns
             df['source_filename'] = filename
             df['ingestion_timestamp'] = datetime.now()
@@ -380,6 +419,21 @@ class BronzeLoader:
                 df['data_hash'] = ''
             if 'validation_status' not in df.columns:
                 df['validation_status'] = 'pending'
+
+            # Normalize numeric columns for DB compatibility
+            if table_name == 'raw_covid':
+                for col in ['confirmed', 'deaths', 'recovered']:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+                if 'date' in df.columns:
+                    df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.date
+
+            if table_name == 'raw_ecommerce':
+                for col in ['monthly_charges', 'total_charges', 'senior_citizen', 'tenure']:
+                    if col in df.columns:
+                        # strip whitespace, coerce non-numeric to NaN then fill
+                        df[col] = pd.to_numeric(df[col].astype(str).str.strip(), errors='coerce').fillna(0)
+
             # Reorder columns to match table schema if possible
             if table_name == 'raw_covid':
                 expected_cols = [
@@ -397,19 +451,15 @@ class BronzeLoader:
                     'source_filename', 'ingestion_timestamp', 'data_hash', 'validation_status'
                 ]
                 df = df[[col for col in expected_cols if col in df.columns]]
+
             # Diagnostic logging before insert
             logger.info(f"DataFrame shape before insert: {df.shape}")
             logger.info(f"DataFrame head before insert:\n{df.head()}\nColumns: {list(df.columns)}")
-            # Insert to database
-            df.to_sql(
-                table_name,
-                self.engine,
-                schema=self.bronze_schema,
-                if_exists='append',
-                index=False
-            )
-            logger.info(f"Loaded {len(df)} records to {self.bronze_schema}.{table_name}")
-            return len(df)
+            # Insert to database using bulk COPY
+            self._check_and_truncate_table(table_name)
+            inserted = self._bulk_insert_df(df, table_name)
+            logger.info(f"Loaded {inserted} records to {self.bronze_schema}.{table_name}")
+            return inserted
         except Exception as e:
             logger.error(f"Failed to load CSV data from {file_path}: {e}")
             return 0

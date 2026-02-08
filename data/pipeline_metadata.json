@@ -1,14 +1,146 @@
 {
-  "pipeline_start": "2026-02-07 17:19:19.134212",
-  "pipeline_end": "2026-02-07 17:21:58.636396",
+  "pipeline_start": "2026-02-08 18:15:01.805059",
+  "pipeline_end": "2026-02-08 19:15:21.746306",
   "layer_results": {
     "bronze": {
       "status": "SUCCESS",
-      "duration_seconds": 159.501146,
-      "files_ingested": 67,
-      "records_loaded": 2782578,
-      "start_time": "2026-02-07 17:19:19.134919",
-      "end_time": "2026-02-07 17:21:58.636065"
+      "duration_seconds": 3575.826452,
+      "files_ingested": 166,
+      "records_loaded": 9464651,
+      "start_time": "2026-02-08 18:15:01.805769",
+      "end_time": "2026-02-08 19:14:37.632221"
+    },
+    "silver": {
+      "status": "SUCCESS",
+      "duration_seconds": 44.11137,
+      "transformation_results": {
+        "users": {
+          "records_transformed": 10,
+          "issues": {
+            "issues": []
+          }
+        },
+        "covid": {
+          "records_transformed": 231744,
+          "issues": {
+            "quality_issues": 0
+          }
+        }
+      },
+      "validation_results": {
+        "quality_score": 83.33333333333334,
+        "total_checks": 12,
+        "passed_checks": 10,
+        "detailed_checks": [
+          {
+            "check_type": "NULL_CHECK",
+            "table": "clean_users",
+            "column": "user_id",
+            "description": "User ID should not be NULL",
+            "null_count": "0",
+            "status": "PASS",
+            "threshold": 0
+          },
+          {
+            "check_type": "NULL_CHECK",
+            "table": "clean_users",
+            "column": "email",
+            "description": "Email should not be NULL",
+            "null_count": "0",
+            "status": "PASS",
+            "threshold": 0
+          },
+          {
+            "check_type": "NULL_CHECK",
+            "table": "clean_covid",
+            "column": "record_date",
+            "description": "Record date should not be NULL",
+            "null_count": "0",
+            "status": "PASS",
+            "threshold": 0
+          },
+          {
+            "check_type": "NULL_CHECK",
+            "table": "clean_covid",
+            "column": "country",
+            "description": "Country should not be NULL",
+            "null_count": "0",
+            "status": "PASS",
+            "threshold": 0
+          },
+          {
+            "check_type": "FORMAT_CHECK",
+            "table": "clean_users",
+            "column": "email",
+            "description": "Email format validation",
+            "invalid_count": "0",
+            "status": "PASS",
+            "threshold": 0
+          },
+          {
+            "check_type": "RANGE_CHECK",
+            "table": "clean_covid",
+            "column": "record_date",
+            "description": "Date range validation (after Dec 2019, not future)",
+            "invalid_count": "0",
+            "status": "PASS",
+            "threshold": 0
+          },
+          {
+            "check_type": "REFERENTIAL_INTEGRITY",
+            "parent_table": "clean_users",
+            "child_table": "clean_posts",
+            "description": "Posts should reference existing users",
+            "orphaned_records": "0",
+            "status": "PASS",
+            "threshold": 0
+          },
+          {
+            "check_type": "BUSINESS_RULE",
+            "table": "clean_covid",
+            "description": "COVID numbers should not be negative",
+            "violation_count": "0",
+            "status": "PASS",
+            "threshold": 0
+          },
+          {
+            "check_type": "BUSINESS_RULE",
+            "table": "clean_covid",
+            "description": "Deaths should not exceed confirmed cases",
+            "violation_count": "5800",
+            "status": "FAIL",
+            "threshold": 0
+          },
+          {
+            "check_type": "BUSINESS_RULE",
+            "table": "clean_covid",
+            "description": "Rates should be between 0 and 100",
+            "violation_count": "224",
+            "status": "FAIL",
+            "threshold": 0
+          },
+          {
+            "check_type": "FRESHNESS_CHECK",
+            "table": "clean_covid",
+            "description": "Data should be updated within 24 hours",
+            "hours_old": 0.009602345277777778,
+            "last_update": "2026-02-08 19:14:47.021001",
+            "status": "PASS",
+            "threshold": 24
+          },
+          {
+            "check_type": "FRESHNESS_CHECK",
+            "table": "clean_users",
+            "description": "Data should be updated within 24 hours",
+            "hours_old": 0.012156391944444445,
+            "last_update": "2026-02-08 19:14:37.826433",
+            "status": "PASS",
+            "threshold": 24
+          }
+        ]
+      },
+      "start_time": "2026-02-08 19:14:37.633564",
+      "end_time": "2026-02-08 19:15:21.744934"
     }
   },
   "overall_status": "SUCCESS"

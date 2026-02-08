@@ -1,3 +1,4 @@
+from logging import config
 import requests
 import pandas as pd
 import json
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 class BronzeIngestor:
     """Ingests data from the API and stores it in the Bronze layer of the Medallion architecture."""
 
-    def __init__(self, config_path: 'config/congig.yaml'):
+    def __init__(self, config_path: str):
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
 
