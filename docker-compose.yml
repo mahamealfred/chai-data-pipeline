@@ -30,7 +30,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./data/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./data/sql/init_db.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin"]
       interval: 10s
@@ -60,7 +60,7 @@ services:
       - ./scripts:/app/scripts
       - ./config:/app/config
       - ./data:/app/data
-    command: python orchestration/medallion_pipeline.py
+    command: sh -c "python orchestration/medallion_pipeline.py; echo 'medallion_pipeline finished'; tail -f /dev/null"
 
   airflow:
     image: apache/airflow:2.7.1-python3.11

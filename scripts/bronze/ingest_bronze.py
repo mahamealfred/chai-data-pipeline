@@ -21,11 +21,9 @@ class BronzeIngestor:
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
 
-        # Steup local directories
         self.bronze_dir = self.config['storage']['local_path']
         os.makedirs(self.bronze_dir, exist_ok=True)
 
-        # Steup MinIO client
         minio_config = self.config['storage']['minio']
         self.minio_client = Minio(
             minio_config['endpoint'],
@@ -34,7 +32,6 @@ class BronzeIngestor:
             secure=False
         )
 
-        # Create buckets if they don't exist
         self._create_minio_bucket()
         self.ingestion_metadata = []
 
@@ -64,18 +61,15 @@ class BronzeIngestor:
             response.raise_for_status()
             data = response.json()
 
-            # generate metadata for lineage tracking
             timestamp = datetime.now()
             data_hash = self._generate_data_hash(json.dumps(data))
 
-            # Save to local bronze stsorage
             local_filename = f"{endpoint_name}_{timestamp.strftime('%Y%m%d%H%M%S')}.json"
             local_path = os.path.join(self.bronze_dir, local_filename)
 
             with open(local_path, 'w') as f:
                 json.dump(data, f, indent=2)
 
-            # Upload to MinIO           minio_path= f"bronze/{local_filename}"
             minio_path = f"api/{endpoint_name}/{local_filename}"
             self.minio_client.fput_object(
                 self.config['storage']['minio']['bronze_bucket'],
@@ -83,7 +77,6 @@ class BronzeIngestor:
                 local_path
             )
 
-            # record ingestion metadata for lineage tracking
             metadata = {
                 'source': 'api',
                 'endpoint': endpoint_name,
@@ -114,18 +107,14 @@ class BronzeIngestor:
             logger.info(f"Fetching CSV data from {dataset_name} at {csv_url}")
             df = pd.read_csv(csv_url)
 
-            # generate metadata for lineage tracking
             timestamp = datetime.now()
             data_hash = self._generate_data_hash(df.to_csv(index=False))
-
-            # Save to local bronze storage
 
             filename = os.path.basename(csv_url)
             local_filename = f"{os.path.splitext(filename)[0]}_{timestamp.strftime('%Y%m%d%H%M%S')}.csv"
             local_path = os.path.join(self.bronze_dir, local_filename)
             df.to_csv(local_path, index=False)
 
-            # Upload to MinIO
             minio_path = f"csv/{dataset_name}/{local_filename}"
             self.minio_client.fput_object(
                 self.config['storage']['minio']['bronze_bucket'],
@@ -133,7 +122,6 @@ class BronzeIngestor:
                 local_path
             )
 
-            # record ingestion metadata for lineage tracking
             metadata = {
                 'source': 'csv',
                 'dataset': dataset_name,
@@ -166,7 +154,6 @@ class BronzeIngestor:
         with open(metatadata_path, 'w') as f:
             json.dump(self.ingestion_metadata, f, indent=2, default=str)
 
-        # Upload metadata to MinIO
         self.minio_client.fput_object(
             self.config['storage']['minio']['bronze_bucket'],
             'ingestion_metadata/ingestion_metadata.json',
@@ -180,18 +167,15 @@ class BronzeIngestor:
        logger.info("Starting Bronze Layer Ingestion")
        logger.info("="*50)
 
-       # Fetch API data
        api_sources = self.config['data_sources']['api']
        for endpoint_name, endpoint_url in api_sources.items():
            self.fetch_api_data(endpoint_name, endpoint_url)
     
 
-       # Fetch CSV data
        csv_sources = self.config['data_sources']['csv']
        for dataset_name, csv_url in csv_sources.items():
             self.fetch_csv_data(dataset_name, csv_url)
     
-       #Save ingestion metadata
        self.save_ingestion_metadata()
        logger.info("="*50)
        logger.info("Completed Bronze Layer Ingestion")

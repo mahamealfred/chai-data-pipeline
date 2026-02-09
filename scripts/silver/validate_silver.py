@@ -14,7 +14,6 @@ class SilverValidator:
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
         
-        # Database connection
         db_config = self.config['database']
         self.engine = create_engine(
             f"postgresql://{db_config['user']}:{db_config['password']}"
@@ -29,30 +28,23 @@ class SilverValidator:
         
         checks = []
         
-        # 1. Check for NULL values in critical columns
         null_checks = self._check_null_values()
         checks.extend(null_checks)
         
-        # 2. Check data type consistency
         type_checks = self._check_data_types()
         checks.extend(type_checks)
         
-        # 3. Check referential integrity
         ref_checks = self._check_referential_integrity()
         checks.extend(ref_checks)
         
-        # 4. Check business rules
         business_checks = self._check_business_rules()
         checks.extend(business_checks)
         
-        # 5. Check data freshness
         freshness_checks = self._check_data_freshness()
         checks.extend(freshness_checks)
         
-        # Log all checks
         self._log_validation_results(checks)
         
-        # Calculate overall quality score
         total_checks = len(checks)
         passed_checks = sum(1 for check in checks if check['status'] == 'PASS')
         quality_score = (passed_checks / total_checks * 100) if total_checks > 0 else 0
@@ -122,7 +114,6 @@ class SilverValidator:
         """Validate data types and formats"""
         checks = []
         
-        # Email format validation (perform in-Python to avoid DB param/formatting issues)
         try:
             emails_df = pd.read_sql(
                 f"SELECT email FROM {self.silver_schema}.clean_users WHERE email IS NOT NULL",
@@ -144,7 +135,6 @@ class SilverValidator:
             'threshold': 0
         })
         
-        # Date format validation
         date_query = f"""
             SELECT COUNT(*) as invalid_count
             FROM {self.silver_schema}.clean_covid
@@ -171,7 +161,6 @@ class SilverValidator:
         """Check relationships between tables"""
         checks = []
         
-        # Check if posts have valid users
         ref_query = f"""
             SELECT COUNT(DISTINCT p.user_id) as orphaned_posts
             FROM {self.silver_schema}.clean_posts p
@@ -198,7 +187,6 @@ class SilverValidator:
         """Validate business rules"""
         checks = []
         
-        # COVID data business rules
         business_rules = [
             {
                 'query': f"""
@@ -248,7 +236,6 @@ class SilverValidator:
         """Check how recent the data is"""
         checks = []
         
-        # Check when data was last updated
         freshness_query = f"""
             SELECT 
                 table_name,
@@ -268,7 +255,7 @@ class SilverValidator:
         
         for _, row in result.iterrows():
             hours_old = row['hours_old']
-            is_fresh = hours_old < 24  # Data should be less than 24 hours old
+            is_fresh = hours_old < 24
             
             checks.append({
                 'check_type': 'FRESHNESS_CHECK',
@@ -286,74 +273,46 @@ class SilverValidator:
         """Log validation results to database"""
         if not checks:
             return
-        # Primary structured serializer: attempt to convert mapping-like objects
-        def make_serializable(val):
-            try:
-                mapping = dict(val)
-            except Exception:
-                if isinstance(val, (list, tuple)):
-                    return [make_serializable(v) for v in val]
-                return val
-            else:
-                return {k: make_serializable(v) for k, v in mapping.items()}
-
-        try:
-            serializable_checks = []
-            for check in checks:
-                serializable_check = {k: make_serializable(v) for k, v in check.items()}
-                serializable_checks.append(serializable_check)
-            checks_df = pd.DataFrame(serializable_checks)
-            checks_df['check_timestamp'] = pd.Timestamp.now()
-
-            # Attempt bulk insert
-            try:
-                checks_df.to_sql(
-                    'data_quality_logs',
-                    self.engine,
-                    schema=self.silver_schema,
-                    if_exists='append',
-                    index=False
-                )
-                logger.info(f"Logged {len(checks)} validation results to database")
-                return
-            except Exception:
-                logger.exception("Bulk insert of validation results failed; will attempt safe fallback.")
-
-        except Exception:
-            logger.exception("Structured serialization of validation checks failed; falling back to safe stringification.")
-
-        # Fallback: stringify values to guarantee serializability and avoid crashing the pipeline
-        try:
-            safe_checks = []
-            for check in checks:
-                safe_check = {}
-                for k, v in check.items():
+        rows = []
+        for check in checks:
+            table_name = check.get('table') or check.get('parent_table') or check.get('child_table') or ''
+            quality_check = check.get('check_type') or check.get('description') or ''
+            failed = None
+            for k in ('null_count', 'invalid_count', 'violation_count', 'orphaned_records'):
+                if k in check and check.get(k) is not None:
                     try:
-                        # Prefer JSON-friendly representation where possible
-                        safe_check[k] = json.dumps(v, default=str)
+                        failed = int(check.get(k))
+                        break
                     except Exception:
                         try:
-                            safe_check[k] = str(v)
+                            failed = int(float(str(check.get(k)).strip('"')))
+                            break
                         except Exception:
-                            safe_check[k] = '<unserializable>'
-                safe_checks.append(safe_check)
-
-            safe_df = pd.DataFrame(safe_checks)
-            safe_df['check_timestamp'] = pd.Timestamp.now()
+                            failed = None
+            records_checked = None
+            failure_rate = None
 
             try:
-                safe_df.to_sql(
-                    'data_quality_logs',
-                    self.engine,
-                    schema=self.silver_schema,
-                    if_exists='append',
-                    index=False
-                )
-                logger.info(f"Logged {len(checks)} validation results to database (using fallback stringification)")
+                details = json.dumps(check, default=str)
             except Exception:
-                logger.exception("Fallback insert of validation results also failed; skipping logging to avoid pipeline crash.")
+                details = json.dumps({k: str(v) for k, v in check.items()})
+
+            rows.append({
+                'table_name': table_name,
+                'quality_check': quality_check,
+                'records_checked': records_checked,
+                'records_failed': failed,
+                'failure_rate': failure_rate,
+                'check_timestamp': pd.Timestamp.now(),
+                'details': details
+            })
+
+        try:
+            df = pd.DataFrame(rows)
+            df.to_sql('data_quality_logs', self.engine, schema=self.silver_schema, if_exists='append', index=False)
+            logger.info(f"Logged {len(rows)} validation results to database (normalized schema)")
         except Exception:
-            logger.exception("Unexpected error during fallback serialization; skipping logging to avoid pipeline crash.")
+            logger.exception("Failed to insert normalized validation results; skipping to avoid pipeline crash.")
     
     def run(self):
         """Execute all validation checks"""

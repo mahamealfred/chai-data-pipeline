@@ -1,12 +1,8 @@
 data_quality:
   rules:
-    - name: "No Nulls"
-      columns: ["customer_id", "gender"]
+    - name: "No Nulls Users"
+      columns: ["user_id", "email"]
       rule: "not_null"
-    - name: "Valid Gender"
-      columns: ["gender"]
-      rule: "in"
-      values: ["Male", "Female"]
 
 data_sources:
   api:

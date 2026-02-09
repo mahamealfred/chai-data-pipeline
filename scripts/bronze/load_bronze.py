@@ -22,22 +22,16 @@ class BronzeLoader:
             'bronze': [
                 'raw_users',
                 'raw_posts',
-                'raw_ecommerce',
                 'raw_covid',
                 'ingestion_metadata'
             ],
             'silver': [
-                # Add your silver layer table names here when you create them
                 'cleaned_users',
                 'cleaned_posts',
                 'cleaned_covid',
                 
             ],
             'gold': [
-                # Add your gold layer table names here when you create them
-                # 'user_analytics',
-                # 'covid_trends',
-                # 'customer_churn_analysis'
             ]
         }
         with self.engine.connect() as conn:
@@ -56,7 +50,6 @@ class BronzeLoader:
         tables = [
             'raw_users',
             'raw_posts',
-            'raw_ecommerce',
             'raw_covid',
             'ingestion_metadata'
         ]
@@ -72,21 +65,17 @@ class BronzeLoader:
     def __init__(self, config_path: str = 'config/config.yaml'):
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
-        print("DEBUG BronzeLoader config:", self.config)  # Debug print
+        print("DEBUG BronzeLoader config:", self.config)
 
-        # Setup database connection
         db_config = self.config['database']
         self.engine = create_engine(
             f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
         )
-        # Bronze schema
         self.bronze_schema = db_config['schemas']['bronze']
         
-        # Get other schemas for reference
         self.silver_schema = db_config['schemas'].get('silver', 'silver')
         self.gold_schema = db_config['schemas'].get('gold', 'gold')
 
-        # local path to bronze data
         self.bronze_local_path = self.config['storage']['local_path']
 
     def create_bronze_schema(self):
@@ -96,7 +85,6 @@ class BronzeLoader:
                 text(f"CREATE SCHEMA IF NOT EXISTS {self.bronze_schema}"))
             logger.info(f"Ensured Bronze schema exists: {self.bronze_schema}")
 
-            # Create bronze tables
             conn.execute(text(f"""
                 -- Users table (from API)
                 CREATE TABLE IF NOT EXISTS {self.bronze_schema}.raw_users (
@@ -144,36 +132,6 @@ class BronzeLoader:
                     data_hash VARCHAR(64),
                     validation_status VARCHAR(20) DEFAULT 'pending'
                 );
-                
-                -- E-commerce / Telco churn raw table
-                CREATE TABLE IF NOT EXISTS {self.bronze_schema}.raw_ecommerce (
-                    ingestion_id SERIAL PRIMARY KEY,
-                    customer_id VARCHAR(100),
-                    gender VARCHAR(20),
-                    senior_citizen INTEGER,
-                    partner VARCHAR(10),
-                    dependents VARCHAR(10),
-                    tenure INTEGER,
-                    phone_service VARCHAR(50),
-                    multiple_lines VARCHAR(50),
-                    internet_service VARCHAR(50),
-                    online_security VARCHAR(50),
-                    online_backup VARCHAR(50),
-                    device_protection VARCHAR(50),
-                    tech_support VARCHAR(50),
-                    streaming_tv VARCHAR(50),
-                    streaming_movies VARCHAR(50),
-                    contract VARCHAR(50),
-                    paperless_billing VARCHAR(10),
-                    payment_method VARCHAR(100),
-                    monthly_charges NUMERIC,
-                    total_charges NUMERIC,
-                    churn VARCHAR(10),
-                    source_filename VARCHAR(255),
-                    ingestion_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    data_hash VARCHAR(64),
-                    validation_status VARCHAR(20) DEFAULT 'pending'
-                );
 
                 -- Ingestion metadata table
                 CREATE TABLE IF NOT EXISTS {self.bronze_schema}.ingestion_metadata (
@@ -193,7 +151,6 @@ class BronzeLoader:
                 );
             """))
 
-            # Create indexes for performance
             conn.execute(text(f"""
                 CREATE INDEX IF NOT EXISTS idx_bronze_users_id ON {self.bronze_schema}.raw_users(user_id);
                 CREATE INDEX IF NOT EXISTS idx_bronze_posts_id ON {self.bronze_schema}.raw_posts(post_id);
@@ -211,7 +168,6 @@ class BronzeLoader:
         """Check whether a table has rows and truncate it before bulk insert."""
         try:
             with self.engine.begin() as conn:
-                # Check if table contains any rows
                 res = conn.execute(text(f"SELECT EXISTS (SELECT 1 FROM {self.bronze_schema}.{table_name} LIMIT 1);"))
                 has_rows = bool(res.scalar())
                 if has_rows:
@@ -229,16 +185,26 @@ class BronzeLoader:
             logger.info(f"No records to insert for {self.bronze_schema}.{table_name}")
             return 0
 
-        # Prepare CSV in memory without header (COPY expects matching columns)
+        def _sanitize_col(col: str) -> str:
+            import re
+            s = re.sub(r'[^0-9a-zA-Z_]', '_', col)
+            s = s.lower()
+            if re.match(r'^[0-9]', s):
+                s = '_' + s
+            return s
+
+        df_to_write = df.copy()
+        sanitized_cols = [_sanitize_col(c) for c in df_to_write.columns.tolist()]
+        df_to_write.columns = sanitized_cols
+
         csv_buffer = io.StringIO()
-        # Use same defaults as pandas.to_sql: let pandas format values
-        df.to_csv(csv_buffer, index=False, header=False)
+        df_to_write.to_csv(csv_buffer, index=False, header=False)
         csv_buffer.seek(0)
 
         raw_conn = self.engine.raw_connection()
         try:
             cur = raw_conn.cursor()
-            cols_sql = ','.join([f'"{c}"' for c in df.columns.tolist()])
+            cols_sql = ','.join([c for c in df_to_write.columns.tolist()])
             copy_sql = f"COPY {self.bronze_schema}.{table_name} ({cols_sql}) FROM STDIN WITH CSV"
             cur.copy_expert(copy_sql, csv_buffer)
             raw_conn.commit()
@@ -263,10 +229,8 @@ class BronzeLoader:
             if not isinstance(data, list):
                 data = [data]
 
-            # Extract filename
             filename = os.path.basename(file_path)
 
-            # Prepare data for insertion
             records = []
             for item in data:
                 record = {
@@ -277,7 +241,6 @@ class BronzeLoader:
                     'validation_status': 'pending'
                 }
 
-                # Extract common fields based on table
                 if table_name == 'raw_users':
                     record.update({
                         'user_id': item.get('id'),
@@ -299,7 +262,6 @@ class BronzeLoader:
 
                 records.append(record)
 
-            # Insert to database using bulk COPY
             df = pd.DataFrame(records)
             self._check_and_truncate_table(table_name)
             inserted = self._bulk_insert_df(df, table_name)
@@ -316,13 +278,11 @@ class BronzeLoader:
             df = pd.read_parquet(file_path)
             filename = os.path.basename(file_path)
             
-            # Add metadata columns
             df['source_filename'] = filename
             df['ingestion_timestamp'] = datetime.now()
             df['data_hash'] = ''  # Add empty data_hash for schema compatibility
             df['validation_status'] = 'pending'
             
-            # Insert to database using bulk COPY
             self._check_and_truncate_table(table_name)
             inserted = self._bulk_insert_df(df, table_name)
             logger.info(f"Loaded {inserted} records to {self.bronze_schema}.{table_name}")
@@ -353,7 +313,9 @@ class BronzeLoader:
                 mapped_metadata.append(mapped_item)
             df = pd.DataFrame(mapped_metadata)
             df['loaded_at'] = datetime.now()
-            # Bulk insert metadata (truncate if present)
+            for col in ['record_count', 'columns_count']:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
             self._check_and_truncate_table('ingestion_metadata')
             inserted = self._bulk_insert_df(df, 'ingestion_metadata')
             logger.info(f"Loaded {inserted} metadata records")
@@ -373,32 +335,7 @@ class BronzeLoader:
             logger.info(f"CSV columns: {list(df.columns)}")
             filename = os.path.basename(file_path)
 
-            # Rename columns to match table schema
-            if table_name == 'raw_ecommerce':
-                df = df.rename(columns={
-                    'customerID': 'customer_id',
-                    'gender': 'gender',
-                    'SeniorCitizen': 'senior_citizen',
-                    'Partner': 'partner',
-                    'Dependents': 'dependents',
-                    'tenure': 'tenure',
-                    'PhoneService': 'phone_service',
-                    'MultipleLines': 'multiple_lines',
-                    'InternetService': 'internet_service',
-                    'OnlineSecurity': 'online_security',
-                    'OnlineBackup': 'online_backup',
-                    'DeviceProtection': 'device_protection',
-                    'TechSupport': 'tech_support',
-                    'StreamingTV': 'streaming_tv',
-                    'StreamingMovies': 'streaming_movies',
-                    'Contract': 'contract',
-                    'PaperlessBilling': 'paperless_billing',
-                    'PaymentMethod': 'payment_method',
-                    'MonthlyCharges': 'monthly_charges',
-                    'TotalCharges': 'total_charges',
-                    'Churn': 'churn',
-                })
-            elif table_name == 'raw_covid':
+            if table_name == 'raw_covid':
                 df = df.rename(columns={
                     'Date': 'date',
                     'Country/Region': 'country',
@@ -408,19 +345,15 @@ class BronzeLoader:
                     'Recovered': 'recovered',
                 })
 
-            # Normalize whitespace-only strings to NA
             df = df.replace(r'^\s*$', pd.NA, regex=True)
 
-            # Add metadata columns
             df['source_filename'] = filename
             df['ingestion_timestamp'] = datetime.now()
-            # Add missing columns for schema compatibility
             if 'data_hash' not in df.columns:
                 df['data_hash'] = ''
             if 'validation_status' not in df.columns:
                 df['validation_status'] = 'pending'
 
-            # Normalize numeric columns for DB compatibility
             if table_name == 'raw_covid':
                 for col in ['confirmed', 'deaths', 'recovered']:
                     if col in df.columns:
@@ -428,34 +361,15 @@ class BronzeLoader:
                 if 'date' in df.columns:
                     df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.date
 
-            if table_name == 'raw_ecommerce':
-                for col in ['monthly_charges', 'total_charges', 'senior_citizen', 'tenure']:
-                    if col in df.columns:
-                        # strip whitespace, coerce non-numeric to NaN then fill
-                        df[col] = pd.to_numeric(df[col].astype(str).str.strip(), errors='coerce').fillna(0)
-
-            # Reorder columns to match table schema if possible
             if table_name == 'raw_covid':
                 expected_cols = [
                     'date', 'country', 'province', 'confirmed', 'deaths', 'recovered',
                     'source_filename', 'ingestion_timestamp', 'data_hash', 'validation_status'
                 ]
                 df = df[[col for col in expected_cols if col in df.columns]]
-            elif table_name == 'raw_ecommerce':
-                expected_cols = [
-                    'customer_id', 'gender', 'senior_citizen', 'partner', 'dependents', 'tenure',
-                    'phone_service', 'multiple_lines', 'internet_service', 'online_security',
-                    'online_backup', 'device_protection', 'tech_support', 'streaming_tv',
-                    'streaming_movies', 'contract', 'paperless_billing', 'payment_method',
-                    'monthly_charges', 'total_charges', 'churn',
-                    'source_filename', 'ingestion_timestamp', 'data_hash', 'validation_status'
-                ]
-                df = df[[col for col in expected_cols if col in df.columns]]
 
-            # Diagnostic logging before insert
             logger.info(f"DataFrame shape before insert: {df.shape}")
             logger.info(f"DataFrame head before insert:\n{df.head()}\nColumns: {list(df.columns)}")
-            # Insert to database using bulk COPY
             self._check_and_truncate_table(table_name)
             inserted = self._bulk_insert_df(df, table_name)
             logger.info(f"Loaded {inserted} records to {self.bronze_schema}.{table_name}")
@@ -465,29 +379,26 @@ class BronzeLoader:
             return 0
 
     def run(self, bronze_files: List[str], ingestion_metadata: List[Dict]):
-        """Execute bronze layer loading, supporting both parquet and csv for covid/ecommerce."""
+        """Execute bronze layer loading, supporting both parquet and csv for covid."""
         logger.info("=" * 60)
         logger.info("BRONZE LAYER: Data Loading Started")
         logger.info("=" * 60)
 
-        # Create schema and tables FIRST (ensures tables exist before truncation)
         self.create_bronze_schema()
 
-        # Truncate all bronze tables before loading new data
-        # Option 1: Truncate only bronze tables (safer if silver/gold are being used by other processes)
         self.truncate_bronze_tables()
-        
-        # Option 2: Uncomment below to truncate ALL tables in ALL schemas (bronze, silver, gold)
-        # self.truncate_all_medallion_tables()
 
-        # Load data files
         total_records = 0
         for file_path in bronze_files:
             filename = os.path.basename(file_path)
             ext = os.path.splitext(filename)[1].lower()
 
             if 'users' in filename:
-                records = self.load_json_data(file_path, 'raw_users')
+                if ext == '.json':
+                    records = self.load_json_data(file_path, 'raw_users')
+                else:
+                    logger.info(f"Skipping non-JSON users file during bronze load: {filename}")
+                    continue
             elif 'posts' in filename:
                 records = self.load_json_data(file_path, 'raw_posts')
             elif 'covid' in filename:
@@ -498,20 +409,11 @@ class BronzeLoader:
                 else:
                     logger.warning(f"Unsupported covid file type: {filename}")
                     continue
-            elif 'ecommerce' in filename or 'Telco-Customer-Churn' in filename:
-                if ext == '.parquet':
-                    records = self.load_parquet_data(file_path, 'raw_ecommerce')
-                elif ext == '.csv':
-                    records = self.load_csv_data(file_path, 'raw_ecommerce')
-                else:
-                    logger.warning(f"Unsupported ecommerce file type: {filename}")
-                    continue
             else:
                 logger.warning(f"Unknown file type: {filename}")
                 continue
             total_records += records
 
-        # Load metadata
         self.load_ingestion_metadata(ingestion_metadata)
 
         logger.info("=" * 60)
